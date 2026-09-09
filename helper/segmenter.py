@@ -1,5 +1,6 @@
 import logging
-from typing import Callable, Optional
+from datetime import datetime, timezone
+from typing import Callable, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -7,6 +8,8 @@ FRAME_MS = 30
 SAMPLE_RATE = 16000
 FRAME_BYTES = int(SAMPLE_RATE * FRAME_MS / 1000) * 2  # 16-bit mono = 960 bytes
 SILENCE_FRAMES_TO_END = round(0.8 * 1000 / FRAME_MS)  # ~0.8s pause, per spec
+
+Utterance = Tuple[bytes, datetime]
 
 
 class UtteranceSegmenter:
@@ -22,11 +25,14 @@ class UtteranceSegmenter:
         self._buffer = bytearray()
         self._silence_run = 0
         self._has_speech = False
+        self._started_at: Optional[datetime] = None
 
-    def push_frame(self, frame: bytes) -> Optional[bytes]:
+    def push_frame(self, frame: bytes) -> Optional[Utterance]:
         is_speech = self._is_speech_fn(frame)
 
         if is_speech:
+            if not self._has_speech:
+                self._started_at = datetime.now(timezone.utc)
             self._buffer.extend(frame)
             self._has_speech = True
             self._silence_run = 0
@@ -45,14 +51,16 @@ class UtteranceSegmenter:
             return self._flush()
         return None
 
-    def flush(self) -> Optional[bytes]:
+    def flush(self) -> Optional[Utterance]:
         if self._has_speech:
             return self._flush()
         return None
 
-    def _flush(self) -> bytes:
+    def _flush(self) -> Utterance:
         result = bytes(self._buffer)
+        started_at = self._started_at
         self._buffer = bytearray()
         self._silence_run = 0
         self._has_speech = False
-        return result
+        self._started_at = None
+        return result, started_at

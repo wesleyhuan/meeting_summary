@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from helper.segmenter import SILENCE_FRAMES_TO_END, UtteranceSegmenter
 
 
@@ -26,7 +28,9 @@ def test_speech_then_enough_silence_flushes_utterance():
     non_none = [r for r in results if r is not None]
 
     assert len(non_none) == 1
-    assert non_none[0] == b"".join(frames)
+    utterance, started_at = non_none[0]
+    assert utterance == b"".join(frames)
+    assert isinstance(started_at, datetime)
 
 
 def test_brief_pause_does_not_split_utterance():
@@ -39,7 +43,9 @@ def test_brief_pause_does_not_split_utterance():
     non_none = [r for r in results if r is not None]
 
     assert len(non_none) == 1
-    assert non_none[0] == b"".join(frames)
+    utterance, started_at = non_none[0]
+    assert utterance == b"".join(frames)
+    assert isinstance(started_at, datetime)
 
 
 def test_segmenter_resets_after_flush_for_next_utterance():
@@ -54,11 +60,16 @@ def test_segmenter_resets_after_flush_for_next_utterance():
     non_none = [r for r in results if r is not None]
 
     assert len(non_none) == 2
+    first_started_at = non_none[0][1]
+    second_started_at = non_none[1][1]
+    assert first_started_at <= second_started_at
 
 
 def test_flush_with_pending_speech_returns_buffer():
     seg = UtteranceSegmenter(make_scripted_speech_fn([True, True]))
     seg.push_frame(b"a")
     seg.push_frame(b"b")
-    assert seg.flush() == b"ab"
+    utterance, started_at = seg.flush()
+    assert utterance == b"ab"
+    assert isinstance(started_at, datetime)
     assert seg.flush() is None

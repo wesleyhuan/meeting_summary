@@ -68,17 +68,18 @@ def add_segment(
     speaker: str,
     text: str,
     confidence: Optional[float],
+    started_at: Optional[str] = None,
 ) -> int:
-    now = datetime.now(timezone.utc).isoformat()
+    started_at = started_at or datetime.now(timezone.utc).isoformat()
     cur = conn.execute(
         "INSERT INTO transcript_segments (meeting_id, speaker, text, confidence, started_at) "
         "VALUES (?, ?, ?, ?, ?)",
-        (meeting_id, speaker, text, confidence, now),
+        (meeting_id, speaker, text, confidence, started_at),
     )
     conn.commit()
     logger.debug(
-        "Added segment meeting_id=%s speaker=%s confidence=%s text=%r",
-        meeting_id, speaker, confidence, text,
+        "Added segment meeting_id=%s speaker=%s confidence=%s started_at=%s text=%r",
+        meeting_id, speaker, confidence, started_at, text,
     )
     return cur.lastrowid
 

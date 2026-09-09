@@ -9,12 +9,13 @@ class FakeSource:
     def __init__(self, rate=16000, channels=1):
         self.rate = rate
         self.channels = channels
+        self.closed = False
 
     def read_chunk(self, frames):
         return b"\x00" * frames * 2
 
     def close(self):
-        pass
+        self.closed = True
 
 
 class FakeTranscriber:
@@ -68,6 +69,54 @@ def test_stop_meeting_without_active_meeting_returns_409():
         response = client.post("/meetings/stop")
 
     assert response.status_code == 409
+
+
+def test_failing_loopback_source_creates_no_meeting_row_and_closes_mic(monkeypatch):
+    mic_instances = []
+
+    def make_mic():
+        source = FakeSource()
+        mic_instances.append(source)
+        return source
+
+    def make_failing_loopback():
+        raise RuntimeError("no loopback device")
+
+    monkeypatch.setattr(main, "MicSource", make_mic)
+    monkeypatch.setattr(main, "LoopbackSource", make_failing_loopback)
+
+    with TestClient(main.app) as client:
+        response = client.post("/meetings/start", json={"title": "Standup"})
+
+    assert response.status_code == 500
+    assert db.list_meetings(main.state.conn) == []
+    assert len(mic_instances) == 1
+    assert mic_instances[0].closed is True
+
+
+def test_stop_meeting_pipeline_failure_clears_state_and_returns_500(monkeypatch):
+    class FailingPipeline:
+        def stop(self):
+            raise RuntimeError("boom")
+
+    with TestClient(main.app) as client:
+        start_response = client.post("/meetings/start", json={"title": "Standup"})
+        assert start_response.status_code == 200
+
+        real_pipeline = main.state.active_pipeline
+        main.state.active_pipeline = FailingPipeline()
+
+        stop_response = client.post("/meetings/stop")
+        assert stop_response.status_code == 500
+
+        assert main.state.active_pipeline is None
+        assert main.state.active_meeting_id is None
+
+        # Service must not be wedged: a new meeting can start right after.
+        next_start = client.post("/meetings/start", json={"title": "Next"})
+        assert next_start.status_code == 200
+
+        real_pipeline.stop()  # clean up the worker threads the stub left behind
 
 
 def test_get_transcript_returns_segments():

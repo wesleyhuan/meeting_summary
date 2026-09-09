@@ -59,17 +59,21 @@ def start_meeting(req: StartMeetingRequest):
     import datetime
 
     title = req.title or f"Meeting {datetime.datetime.now().isoformat(timespec='seconds')}"
-    meeting_id = db.create_meeting(state.conn, title)
 
     if state.transcriber is None:
         state.transcriber = WhisperTranscriber()
 
+    mic_source = None
     try:
         mic_source = MicSource()
         loopback_source = LoopbackSource()
     except Exception:
-        logger.exception("Failed to open audio devices for meeting_id=%s", meeting_id)
+        logger.exception("Failed to open audio devices; no meeting row created")
+        if mic_source is not None:
+            mic_source.close()
         raise HTTPException(status_code=500, detail="Could not open audio devices")
+
+    meeting_id = db.create_meeting(state.conn, title)
 
     pipeline = build_pipeline(
         meeting_id, state.conn, state.broadcast, mic_source, loopback_source, state.transcriber
@@ -86,11 +90,23 @@ def stop_meeting():
     if state.active_pipeline is None:
         raise HTTPException(status_code=409, detail="No meeting is in progress")
 
-    state.active_pipeline.stop()
-    db.end_meeting(state.conn, state.active_meeting_id)
-    logger.info("Meeting stopped meeting_id=%s", state.active_meeting_id)
-    state.active_pipeline = None
-    state.active_meeting_id = None
+    pipeline = state.active_pipeline
+    meeting_id = state.active_meeting_id
+    stop_error = None
+    try:
+        pipeline.stop()
+    except Exception:
+        logger.exception("Error stopping pipeline for meeting_id=%s", meeting_id)
+        stop_error = True
+    finally:
+        state.active_pipeline = None
+        state.active_meeting_id = None
+        db.end_meeting(state.conn, meeting_id)
+
+    if stop_error:
+        raise HTTPException(status_code=500, detail="Error stopping meeting")
+
+    logger.info("Meeting stopped meeting_id=%s", meeting_id)
     return {"status": "stopped"}
 
 

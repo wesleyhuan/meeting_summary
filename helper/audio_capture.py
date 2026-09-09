@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -7,7 +8,7 @@ class MicSource:
     def __init__(
         self,
         device_index=None,
-        rate: int = 44100,
+        rate: Optional[int] = None,
         channels: int = 1,
         frames_per_buffer: int = 1024,
         pyaudio_module=None,
@@ -15,6 +16,10 @@ class MicSource:
         if pyaudio_module is None:
             import pyaudiowpatch as pyaudio_module
         self._pa = pyaudio_module.PyAudio()
+        if rate is None:
+            default_input = self._pa.get_default_input_device_info()
+            rate = int(default_input["defaultSampleRate"])
+            logger.debug("Queried default input device rate=%s", rate)
         self.rate = rate
         self.channels = channels
         logger.info(

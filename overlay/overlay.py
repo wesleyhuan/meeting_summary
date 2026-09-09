@@ -30,6 +30,7 @@ class OverlayApp:
         )
         self.label.pack(expand=True, fill="both", padx=12, pady=12)
         self._bind_drag()
+        self.root.bind("<Escape>", lambda e: self.root.destroy())
         self._ws_thread = threading.Thread(target=self._run_ws_loop, daemon=True)
 
     def _bind_drag(self) -> None:

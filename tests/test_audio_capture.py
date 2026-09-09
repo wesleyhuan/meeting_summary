@@ -38,6 +38,9 @@ class FakePyAudio:
     def get_default_wasapi_loopback(self):
         return {"index": 7, "defaultSampleRate": 48000.0, "maxInputChannels": 2}
 
+    def get_default_input_device_info(self):
+        return {"index": 2, "defaultSampleRate": 48000.0, "maxInputChannels": 1}
+
 
 def test_mic_source_opens_input_stream_with_requested_params():
     fake_module = FakePyAudio()
@@ -68,6 +71,14 @@ def test_mic_source_close_stops_and_terminates():
 
     assert fake_module.stream.closed is True
     assert fake_module.terminated is True
+
+
+def test_mic_source_queries_default_device_rate_when_not_given():
+    fake_module = FakePyAudio()
+    source = MicSource(pyaudio_module=fake_module)
+
+    assert fake_module.opened_with["rate"] == 48000
+    assert source.rate == 48000
 
 
 def test_loopback_source_uses_default_wasapi_loopback_device():

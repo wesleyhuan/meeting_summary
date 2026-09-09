@@ -33,6 +33,13 @@ def test_add_segment_and_get_transcript(conn):
     assert [r["text"] for r in rows] == ["hello there", "hi back"]
 
 
+def test_add_segment_uses_provided_started_at(conn):
+    meeting_id = db.create_meeting(conn, "Standup")
+    db.add_segment(conn, meeting_id, "you", "hello", 0.9, started_at="2020-01-01T00:00:00+00:00")
+    row = db.get_transcript(conn, meeting_id)[0]
+    assert row["started_at"] == "2020-01-01T00:00:00+00:00"
+
+
 def test_add_segment_rejects_bad_speaker(conn):
     meeting_id = db.create_meeting(conn, "Standup")
     with pytest.raises(sqlite3.IntegrityError):
