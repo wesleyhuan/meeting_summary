@@ -63,7 +63,12 @@ class StreamWorker:
             except Exception:
                 logger.exception("Read failed for speaker=%s; stopping worker", self._speaker)
                 return
-            self.process_chunk(chunk)
+            try:
+                self.process_chunk(chunk)
+            except Exception:
+                logger.exception(
+                    "process_chunk failed for speaker=%s; continuing", self._speaker
+                )
 
     def _emit(self, utterance: bytes) -> None:
         result = self._transcriber.transcribe(utterance)
