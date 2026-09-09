@@ -22,6 +22,30 @@ python python_subtitle.py
 ```
 On Windows, if `PyAudio` fails to install via pip: `pip install pipwin && pipwin install pyaudio`.
 
+## Phase 1: meeting capture helper + overlay
+
+Two new entry points, in addition to the original `index.html`/`python_subtitle.py` prototype:
+
+**Helper service** (does the real work — audio capture, VAD, Whisper STT, SQLite storage, WebSocket push):
+```
+uvicorn helper.main:app --port 8000
+```
+On first meeting start, this downloads the `faster-whisper` "base" model (one-time, requires internet). This project uses `webrtcvad-wheels` (a prebuilt-wheel drop-in for `webrtcvad`) specifically to avoid needing Microsoft C++ Build Tools on Windows — if you ever need to switch back to plain `webrtcvad`, you'd need those build tools installed.
+
+**Overlay** (always-on-top live caption window, run separately, in its own terminal):
+```
+python -m overlay.overlay
+```
+
+**Manual end-to-end test** (no dashboard yet — use the helper's auto-generated API docs):
+1. Start the helper, then the overlay.
+2. Open `http://localhost:8000/docs` and call `POST /meetings/start` (empty body `{}` is fine).
+3. Speak into your mic, and/or play audio through your speakers — captions should appear in the overlay window within ~1-2 seconds of a pause.
+4. Call `POST /meetings/stop`.
+5. Call `GET /meetings/{meeting_id}/transcript` to see the full stored transcript with `"you"`/`"other"` speaker labels.
+
+**Tests:** `pytest -v` — covers storage, resampling, segmentation, VAD wiring, STT result parsing, capture-source wiring, pipeline orchestration, the REST/WebSocket API, and overlay caption formatting via fakes/dependency injection. Real audio hardware, the WASAPI loopback device, and the Whisper model itself are exercised only in the manual test above, not in the automated suite.
+
 ## Architecture notes
 
 ### `index.html`
