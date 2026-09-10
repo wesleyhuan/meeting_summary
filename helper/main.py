@@ -12,6 +12,11 @@ from .audio_capture import LoopbackSource, MicSource
 from .pipeline import build_pipeline
 from .stt import WhisperTranscriber
 
+# uvicorn imports this module rather than running it as __main__, so a
+# `if __name__ == "__main__"` guard here would never fire; basicConfig()
+# is a no-op if something else already configured the root logger.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
 logger = logging.getLogger(__name__)
 
 
