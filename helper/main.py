@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from . import db
-from .audio_capture import LoopbackSource, MicSource
+from .audio_capture import LoopbackSource, MicSource, list_input_devices
 from .pipeline import build_pipeline
 from .stt import WhisperTranscriber
 
@@ -25,7 +25,6 @@ class AppState:
         self.conn = db.connect(db_path or db.default_db_path())
         self.active_pipeline = None
         self.active_meeting_id: Optional[int] = None
-        self.transcriber = None
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self.queues: list[asyncio.Queue] = []
 
@@ -56,6 +55,12 @@ class StartMeetingRequest(BaseModel):
     title: Optional[str] = None
 
 
+class SettingsUpdate(BaseModel):
+    mic_device_id: Optional[str] = None
+    stt_language: Optional[str] = None
+    whisper_model_size: Optional[str] = None
+
+
 @app.post("/meetings/start")
 def start_meeting(req: StartMeetingRequest):
     if state.active_pipeline is not None:
@@ -65,12 +70,15 @@ def start_meeting(req: StartMeetingRequest):
 
     title = req.title or f"Meeting {datetime.datetime.now().isoformat(timespec='seconds')}"
 
-    if state.transcriber is None:
-        state.transcriber = WhisperTranscriber()
+    settings = db.get_all_settings(state.conn)
+    mic_device_id = int(settings["mic_device_id"]) if settings["mic_device_id"] else None
+    transcriber = WhisperTranscriber(
+        model_size=settings["whisper_model_size"], language=settings["stt_language"]
+    )
 
     mic_source = None
     try:
-        mic_source = MicSource()
+        mic_source = MicSource(device_index=mic_device_id)
         loopback_source = LoopbackSource()
     except Exception:
         logger.exception("Failed to open audio devices; no meeting row created")
@@ -81,13 +89,42 @@ def start_meeting(req: StartMeetingRequest):
     meeting_id = db.create_meeting(state.conn, title)
 
     pipeline = build_pipeline(
-        meeting_id, state.conn, state.broadcast, mic_source, loopback_source, state.transcriber
+        meeting_id, state.conn, state.broadcast, mic_source, loopback_source, transcriber
     )
     pipeline.start()
     state.active_pipeline = pipeline
     state.active_meeting_id = meeting_id
     logger.info("Meeting started meeting_id=%s title=%r", meeting_id, title)
     return {"meeting_id": meeting_id, "title": title}
+
+
+@app.get("/meetings")
+def list_meetings():
+    rows = db.list_meetings(state.conn)
+    return {"meetings": [dict(r) for r in rows]}
+
+
+@app.get("/settings")
+def get_settings():
+    return db.get_all_settings(state.conn)
+
+
+@app.put("/settings")
+def update_settings(update: SettingsUpdate):
+    data = update.model_dump(exclude_none=True)
+    for key, value in data.items():
+        db.set_setting(state.conn, key, value)
+    return db.get_all_settings(state.conn)
+
+
+@app.get("/audio-devices")
+def audio_devices():
+    try:
+        devices = list_input_devices()
+    except Exception:
+        logger.exception("Failed to enumerate audio input devices")
+        raise HTTPException(status_code=500, detail="Could not list audio devices")
+    return {"devices": devices}
 
 
 @app.post("/meetings/stop")

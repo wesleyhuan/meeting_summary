@@ -28,9 +28,9 @@ def isolated_state(tmp_path, monkeypatch):
     main.state.conn = db.connect(str(tmp_path / "test.db"))
     main.state.active_pipeline = None
     main.state.active_meeting_id = None
-    monkeypatch.setattr(main, "MicSource", lambda: FakeSource())
+    monkeypatch.setattr(main, "MicSource", lambda **kwargs: FakeSource())
     monkeypatch.setattr(main, "LoopbackSource", lambda: FakeSource())
-    monkeypatch.setattr(main, "WhisperTranscriber", lambda: FakeTranscriber())
+    monkeypatch.setattr(main, "WhisperTranscriber", lambda **kwargs: FakeTranscriber())
     yield
     if main.state.active_pipeline is not None:
         main.state.active_pipeline.stop()
@@ -74,7 +74,7 @@ def test_stop_meeting_without_active_meeting_returns_409():
 def test_failing_loopback_source_creates_no_meeting_row_and_closes_mic(monkeypatch):
     mic_instances = []
 
-    def make_mic():
+    def make_mic(**kwargs):
         source = FakeSource()
         mic_instances.append(source)
         return source
@@ -145,3 +145,76 @@ def test_websocket_receives_broadcast_messages():
             message = websocket.receive_text()
 
     assert message == '{"speaker": "you", "text": "hello"}'
+
+
+def test_list_meetings_endpoint_returns_meetings():
+    db.create_meeting(main.state.conn, "First")
+    db.create_meeting(main.state.conn, "Second")
+
+    with TestClient(main.app) as client:
+        response = client.get("/meetings")
+
+    assert response.status_code == 200
+    titles = [m["title"] for m in response.json()["meetings"]]
+    assert titles == ["Second", "First"]
+
+
+def test_get_settings_returns_defaults_when_unset():
+    with TestClient(main.app) as client:
+        response = client.get("/settings")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "mic_device_id": "",
+        "stt_language": "en",
+        "whisper_model_size": "base",
+    }
+
+
+def test_put_settings_updates_and_returns_all_settings():
+    with TestClient(main.app) as client:
+        response = client.put("/settings", json={"stt_language": "fr", "mic_device_id": "2"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["stt_language"] == "fr"
+    assert body["mic_device_id"] == "2"
+    assert body["whisper_model_size"] == "base"
+
+
+def test_get_audio_devices_returns_list(monkeypatch):
+    monkeypatch.setattr(
+        main, "list_input_devices", lambda: [{"index": 1, "name": "Mic"}]
+    )
+
+    with TestClient(main.app) as client:
+        response = client.get("/audio-devices")
+
+    assert response.status_code == 200
+    assert response.json() == {"devices": [{"index": 1, "name": "Mic"}]}
+
+
+def test_start_meeting_passes_settings_to_transcriber_and_mic(monkeypatch):
+    db.set_setting(main.state.conn, "stt_language", "fr")
+    db.set_setting(main.state.conn, "whisper_model_size", "small")
+    db.set_setting(main.state.conn, "mic_device_id", "3")
+
+    captured = {}
+
+    def fake_transcriber_factory(**kwargs):
+        captured["transcriber_kwargs"] = kwargs
+        return FakeTranscriber()
+
+    def fake_mic_source_factory(device_index=None):
+        captured["mic_device_index"] = device_index
+        return FakeSource()
+
+    monkeypatch.setattr(main, "WhisperTranscriber", fake_transcriber_factory)
+    monkeypatch.setattr(main, "MicSource", fake_mic_source_factory)
+
+    with TestClient(main.app) as client:
+        client.post("/meetings/start", json={"title": "Standup"})
+
+    assert captured["transcriber_kwargs"]["language"] == "fr"
+    assert captured["transcriber_kwargs"]["model_size"] == "small"
+    assert captured["mic_device_index"] == 3
