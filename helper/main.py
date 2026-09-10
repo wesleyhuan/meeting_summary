@@ -2,9 +2,11 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from . import db
@@ -18,6 +20,8 @@ from .stt import WhisperTranscriber
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 logger = logging.getLogger(__name__)
+
+DASHBOARD_PATH = Path(__file__).parent / "dashboard.html"
 
 
 class AppState:
@@ -49,6 +53,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.get("/", response_class=HTMLResponse)
+def dashboard():
+    return DASHBOARD_PATH.read_text(encoding="utf-8")
 
 
 class StartMeetingRequest(BaseModel):

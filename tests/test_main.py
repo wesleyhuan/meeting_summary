@@ -218,3 +218,15 @@ def test_start_meeting_passes_settings_to_transcriber_and_mic(monkeypatch):
     assert captured["transcriber_kwargs"]["language"] == "fr"
     assert captured["transcriber_kwargs"]["model_size"] == "small"
     assert captured["mic_device_index"] == 3
+
+
+def test_dashboard_route_returns_html_with_all_tabs():
+    with TestClient(main.app) as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    body = response.text
+    assert 'data-tab="live"' in body
+    assert 'data-tab="meetings"' in body
+    assert 'data-tab="settings"' in body
