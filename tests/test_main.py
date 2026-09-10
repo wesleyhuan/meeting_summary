@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -52,6 +54,26 @@ def test_start_meeting_while_active_returns_409():
         response = client.post("/meetings/start", json={"title": "Second"})
 
     assert response.status_code == 409
+
+
+def test_concurrent_start_meeting_requests_only_start_one_pipeline():
+    results = []
+    barrier = threading.Barrier(2)
+
+    def call_start():
+        barrier.wait()
+        response = client.post("/meetings/start", json={"title": "Race"})
+        results.append(response.status_code)
+
+    with TestClient(main.app) as client:
+        threads = [threading.Thread(target=call_start) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+    assert sorted(results) == [200, 409]
+    assert len(db.list_meetings(main.state.conn)) == 1
 
 
 def test_stop_meeting_sets_ended_at():
@@ -180,6 +202,16 @@ def test_put_settings_updates_and_returns_all_settings():
     assert body["stt_language"] == "fr"
     assert body["mic_device_id"] == "2"
     assert body["whisper_model_size"] == "base"
+
+
+def test_put_settings_with_invalid_model_size_returns_422_and_does_not_change_setting():
+    with TestClient(main.app) as client:
+        client.put("/settings", json={"whisper_model_size": "base"})
+
+        response = client.put("/settings", json={"whisper_model_size": "not-a-real-model"})
+
+        assert response.status_code == 422
+        assert db.get_all_settings(main.state.conn)["whisper_model_size"] == "base"
 
 
 def test_get_audio_devices_returns_list(monkeypatch):

@@ -1,13 +1,14 @@
 import asyncio
 import json
 import logging
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from . import db
 from .audio_capture import LoopbackSource, MicSource, list_input_devices
@@ -31,6 +32,7 @@ class AppState:
         self.active_meeting_id: Optional[int] = None
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self.queues: list[asyncio.Queue] = []
+        self.start_lock = threading.Lock()
 
     def broadcast(self, message: dict) -> None:
         payload = json.dumps(message)
@@ -64,47 +66,67 @@ class StartMeetingRequest(BaseModel):
     title: Optional[str] = None
 
 
+MODEL_SIZES = ("tiny", "base", "small", "medium", "large-v3")
+
+
 class SettingsUpdate(BaseModel):
     mic_device_id: Optional[str] = None
     stt_language: Optional[str] = None
     whisper_model_size: Optional[str] = None
 
+    @field_validator("whisper_model_size")
+    @classmethod
+    def validate_model_size(cls, value):
+        if value is not None and value not in MODEL_SIZES:
+            raise ValueError(f"whisper_model_size must be one of {MODEL_SIZES}")
+        return value
+
 
 @app.post("/meetings/start")
 def start_meeting(req: StartMeetingRequest):
-    if state.active_pipeline is not None:
-        raise HTTPException(status_code=409, detail="A meeting is already in progress")
+    with state.start_lock:
+        if state.active_pipeline is not None:
+            raise HTTPException(status_code=409, detail="A meeting is already in progress")
 
-    import datetime
+        import datetime
 
-    title = req.title or f"Meeting {datetime.datetime.now().isoformat(timespec='seconds')}"
+        title = req.title or f"Meeting {datetime.datetime.now().isoformat(timespec='seconds')}"
 
-    settings = db.get_all_settings(state.conn)
-    mic_device_id = int(settings["mic_device_id"]) if settings["mic_device_id"] else None
-    transcriber = WhisperTranscriber(
-        model_size=settings["whisper_model_size"], language=settings["stt_language"]
-    )
+        settings = db.get_all_settings(state.conn)
+        mic_device_id = int(settings["mic_device_id"]) if settings["mic_device_id"] else None
 
-    mic_source = None
-    try:
-        mic_source = MicSource(device_index=mic_device_id)
-        loopback_source = LoopbackSource()
-    except Exception:
-        logger.exception("Failed to open audio devices; no meeting row created")
-        if mic_source is not None:
+        mic_source = None
+        try:
+            mic_source = MicSource(device_index=mic_device_id)
+            loopback_source = LoopbackSource()
+        except Exception:
+            logger.exception("Failed to open audio devices; no meeting row created")
+            if mic_source is not None:
+                mic_source.close()
+            raise HTTPException(status_code=500, detail="Could not open audio devices")
+
+        try:
+            settings = db.get_all_settings(state.conn)
+            mic_device_id = int(settings["mic_device_id"]) if settings["mic_device_id"] else None
+            transcriber = WhisperTranscriber(
+                model_size=settings["whisper_model_size"], language=settings["stt_language"]
+            )
+        except Exception:
+            logger.exception("Failed to prepare transcriber from settings")
             mic_source.close()
-        raise HTTPException(status_code=500, detail="Could not open audio devices")
+            loopback_source.close()
+            raise HTTPException(status_code=500, detail="Could not prepare speech-to-text model")
 
-    meeting_id = db.create_meeting(state.conn, title)
+        meeting_id = db.create_meeting(state.conn, title)
 
-    pipeline = build_pipeline(
-        meeting_id, state.conn, state.broadcast, mic_source, loopback_source, transcriber
-    )
-    pipeline.start()
-    state.active_pipeline = pipeline
-    state.active_meeting_id = meeting_id
-    logger.info("Meeting started meeting_id=%s title=%r", meeting_id, title)
-    return {"meeting_id": meeting_id, "title": title}
+        pipeline = build_pipeline(
+            meeting_id, state.conn, state.broadcast, mic_source, loopback_source, transcriber
+        )
+        pipeline.start()
+        state.active_pipeline = pipeline
+        state.active_meeting_id = meeting_id
+        logger.info("Meeting started meeting_id=%s title=%r", meeting_id, title)
+        return {"meeting_id": meeting_id, "title": title}
 
 
 @app.get("/meetings")

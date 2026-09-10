@@ -17,9 +17,14 @@ class MicSource:
             import pyaudiowpatch as pyaudio_module
         self._pa = pyaudio_module.PyAudio()
         if rate is None:
-            default_input = self._pa.get_default_input_device_info()
-            rate = int(default_input["defaultSampleRate"])
-            logger.debug("Queried default input device rate=%s", rate)
+            if device_index is not None:
+                device_info = self._pa.get_device_info_by_index(device_index)
+            else:
+                device_info = self._pa.get_default_input_device_info()
+            rate = int(device_info["defaultSampleRate"])
+            logger.debug(
+                "Queried input device rate device_index=%s rate=%s", device_index, rate
+            )
         self.rate = rate
         self.channels = channels
         logger.info(
@@ -88,7 +93,7 @@ def list_input_devices(pyaudio_module=None) -> list[dict]:
         devices = []
         for i in range(pa.get_device_count()):
             info = pa.get_device_info_by_index(i)
-            if info.get("maxInputChannels", 0) > 0:
+            if info.get("maxInputChannels", 0) > 0 and not info.get("isLoopbackDevice", False):
                 devices.append({"index": info["index"], "name": info["name"]})
         return devices
     finally:

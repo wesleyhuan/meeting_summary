@@ -254,6 +254,7 @@
   connectWebSocket();
 
   btnStart.addEventListener('click', async () => {
+    btnStart.disabled = true;
     try {
       const response = await fetch('/meetings/start', {
         method: 'POST',
@@ -263,18 +264,19 @@
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
         showToast(body.detail || 'Could not start meeting');
+        btnStart.disabled = false;
         return;
       }
       const data = await response.json();
       currentMeetingId = data.meeting_id;
       liveTranscript.innerHTML = '';
       subtitleStrip.textContent = 'Listening…';
-      btnStart.disabled = true;
       btnStop.disabled = false;
       statusBadge.textContent = 'Listening…';
       statusBadge.classList.add('active');
     } catch (err) {
       showToast('Could not reach the helper service');
+      btnStart.disabled = false;
     }
   });
 
@@ -340,27 +342,30 @@
   const settingsForm = document.getElementById('settingsForm');
 
   async function loadSettings() {
+    let settings = {};
     try {
-      const [devicesResponse, settingsResponse] = await Promise.all([
-        fetch('/audio-devices'),
-        fetch('/settings'),
-      ]);
-      const devicesData = await devicesResponse.json();
-      const settings = await settingsResponse.json();
+      const settingsResponse = await fetch('/settings');
+      settings = await settingsResponse.json();
+    } catch (err) {
+      showToast('Could not load settings');
+    }
 
+    try {
+      const devicesResponse = await fetch('/audio-devices');
+      const devicesData = await devicesResponse.json();
       devicesData.devices.forEach((device) => {
         const option = document.createElement('option');
         option.value = String(device.index);
         option.textContent = device.name;
         micSelect.appendChild(option);
       });
-
-      micSelect.value = settings.mic_device_id || '';
-      languageInput.value = settings.stt_language || 'en';
-      modelSelect.value = settings.whisper_model_size || 'base';
     } catch (err) {
-      showToast('Could not load settings');
+      showToast('Could not load audio device list');
     }
+
+    micSelect.value = settings.mic_device_id || '';
+    languageInput.value = settings.stt_language || 'en';
+    modelSelect.value = settings.whisper_model_size || 'base';
   }
   loadSettings();
 

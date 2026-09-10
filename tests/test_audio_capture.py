@@ -41,6 +41,11 @@ class FakePyAudio:
     def get_default_input_device_info(self):
         return {"index": 2, "defaultSampleRate": 48000.0, "maxInputChannels": 1}
 
+    def get_device_info_by_index(self, index):
+        return {
+            3: {"index": 3, "defaultSampleRate": 44100.0, "maxInputChannels": 1},
+        }[index]
+
 
 def test_mic_source_opens_input_stream_with_requested_params():
     fake_module = FakePyAudio()
@@ -81,6 +86,14 @@ def test_mic_source_queries_default_device_rate_when_not_given():
     assert source.rate == 48000
 
 
+def test_mic_source_queries_specific_device_rate_when_device_index_given():
+    fake_module = FakePyAudio()
+    source = MicSource(device_index=3, pyaudio_module=fake_module)
+
+    assert fake_module.opened_with["rate"] == 44100
+    assert source.rate == 44100
+
+
 def test_loopback_source_uses_default_wasapi_loopback_device():
     fake_module = FakePyAudio()
     source = LoopbackSource(pyaudio_module=fake_module)
@@ -96,7 +109,12 @@ from helper.audio_capture import list_input_devices
 class FakeMultiDevicePyAudio:
     def __init__(self):
         self._devices = [
-            {"index": 0, "name": "Speakers (loopback)", "maxInputChannels": 0},
+            {
+                "index": 0,
+                "name": "Speakers (Realtek) [Loopback]",
+                "maxInputChannels": 2,
+                "isLoopbackDevice": True,
+            },
             {"index": 1, "name": "Built-in Mic", "maxInputChannels": 1},
             {"index": 2, "name": "USB Headset Mic", "maxInputChannels": 2},
         ]
