@@ -78,3 +78,18 @@ class LoopbackSource:
         self._stream.stop_stream()
         self._stream.close()
         self._pa.terminate()
+
+
+def list_input_devices(pyaudio_module=None) -> list[dict]:
+    if pyaudio_module is None:
+        import pyaudiowpatch as pyaudio_module
+    pa = pyaudio_module.PyAudio()
+    try:
+        devices = []
+        for i in range(pa.get_device_count()):
+            info = pa.get_device_info_by_index(i)
+            if info.get("maxInputChannels", 0) > 0:
+                devices.append({"index": info["index"], "name": info["name"]})
+        return devices
+    finally:
+        pa.terminate()

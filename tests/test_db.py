@@ -55,3 +55,26 @@ def test_list_meetings_orders_most_recent_first(conn):
 
 def test_get_meeting_returns_none_for_missing_id(conn):
     assert db.get_meeting(conn, 999) is None
+
+
+def test_get_setting_returns_none_when_unset(conn):
+    assert db.get_setting(conn, "stt_language") is None
+
+
+def test_set_and_get_setting(conn):
+    db.set_setting(conn, "stt_language", "fr")
+    assert db.get_setting(conn, "stt_language") == "fr"
+
+
+def test_set_setting_overwrites_existing(conn):
+    db.set_setting(conn, "stt_language", "fr")
+    db.set_setting(conn, "stt_language", "es")
+    assert db.get_setting(conn, "stt_language") == "es"
+
+
+def test_get_all_settings_merges_defaults_with_overrides(conn):
+    db.set_setting(conn, "stt_language", "fr")
+    settings = db.get_all_settings(conn)
+    assert settings["stt_language"] == "fr"
+    assert settings["whisper_model_size"] == "base"
+    assert settings["mic_device_id"] == ""

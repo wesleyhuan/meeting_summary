@@ -23,7 +23,18 @@ CREATE TABLE IF NOT EXISTS transcript_segments (
     confidence REAL,
     started_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
+
+DEFAULT_SETTINGS = {
+    "mic_device_id": "",
+    "stt_language": "en",
+    "whisper_model_size": "base",
+}
 
 
 def default_db_path() -> str:
@@ -101,3 +112,25 @@ def list_meetings(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT * FROM meetings ORDER BY started_at DESC"
     ).fetchall()
+
+
+def get_setting(conn: sqlite3.Connection, key: str) -> Optional[str]:
+    row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+    conn.commit()
+    logger.info("Set setting %s=%r", key, value)
+
+
+def get_all_settings(conn: sqlite3.Connection) -> dict:
+    rows = conn.execute("SELECT key, value FROM settings").fetchall()
+    settings = dict(DEFAULT_SETTINGS)
+    settings.update({row["key"]: row["value"] for row in rows})
+    return settings

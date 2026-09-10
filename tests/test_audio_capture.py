@@ -88,3 +88,47 @@ def test_loopback_source_uses_default_wasapi_loopback_device():
     assert fake_module.opened_with["input_device_index"] == 7
     assert source.rate == 48000
     assert source.channels == 2
+
+
+from helper.audio_capture import list_input_devices
+
+
+class FakeMultiDevicePyAudio:
+    def __init__(self):
+        self._devices = [
+            {"index": 0, "name": "Speakers (loopback)", "maxInputChannels": 0},
+            {"index": 1, "name": "Built-in Mic", "maxInputChannels": 1},
+            {"index": 2, "name": "USB Headset Mic", "maxInputChannels": 2},
+        ]
+        self.terminated = False
+
+    def PyAudio(self):
+        return self
+
+    def get_device_count(self):
+        return len(self._devices)
+
+    def get_device_info_by_index(self, i):
+        return self._devices[i]
+
+    def terminate(self):
+        self.terminated = True
+
+
+def test_list_input_devices_filters_to_input_capable_devices():
+    fake_module = FakeMultiDevicePyAudio()
+
+    devices = list_input_devices(pyaudio_module=fake_module)
+
+    assert devices == [
+        {"index": 1, "name": "Built-in Mic"},
+        {"index": 2, "name": "USB Headset Mic"},
+    ]
+
+
+def test_list_input_devices_terminates_pyaudio():
+    fake_module = FakeMultiDevicePyAudio()
+
+    list_input_devices(pyaudio_module=fake_module)
+
+    assert fake_module.terminated is True

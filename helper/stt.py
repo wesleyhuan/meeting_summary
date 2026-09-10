@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass
+from typing import Optional
 
 import numpy as np
 
@@ -13,17 +14,25 @@ class TranscriptionResult:
 
 
 class WhisperTranscriber:
-    def __init__(self, model=None, model_size: str = "base", device: str = "cpu"):
+    def __init__(
+        self,
+        model=None,
+        model_size: str = "base",
+        device: str = "cpu",
+        language: str = "en",
+    ):
         if model is None:
             from faster_whisper import WhisperModel
 
             logger.info("Loading faster-whisper model_size=%s device=%s", model_size, device)
             model = WhisperModel(model_size, device=device, compute_type="int8")
         self._model = model
+        self._language = language
 
     def transcribe(
-        self, pcm: bytes, sample_rate: int = 16000, language: str = "en"
+        self, pcm: bytes, sample_rate: int = 16000, language: Optional[str] = None
     ) -> TranscriptionResult:
+        language = language or self._language
         audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
 
         try:

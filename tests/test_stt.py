@@ -15,8 +15,10 @@ class FakeSegment:
 class FakeModel:
     def __init__(self, segments):
         self._segments = segments
+        self.received_language = None
 
     def transcribe(self, audio, language="en"):
+        self.received_language = language
         return iter(self._segments), {"language": language}
 
 
@@ -49,3 +51,23 @@ def test_transcribe_empty_segments_yields_empty_result():
 
     assert result.text == ""
     assert result.confidence == 0.0
+
+
+def test_transcribe_uses_instance_language_by_default():
+    model = FakeModel([FakeSegment("bonjour", -0.1)])
+    transcriber = WhisperTranscriber(model=model, language="fr")
+    silence = np.zeros(1600, dtype=np.int16).tobytes()
+
+    transcriber.transcribe(silence)
+
+    assert model.received_language == "fr"
+
+
+def test_transcribe_language_override_takes_precedence():
+    model = FakeModel([FakeSegment("hi", -0.1)])
+    transcriber = WhisperTranscriber(model=model, language="fr")
+    silence = np.zeros(1600, dtype=np.int16).tobytes()
+
+    transcriber.transcribe(silence, language="en")
+
+    assert model.received_language == "en"
