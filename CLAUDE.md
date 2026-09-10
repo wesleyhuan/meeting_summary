@@ -37,9 +37,11 @@ On first meeting start, this downloads the `faster-whisper` "base" model (one-ti
 python -m overlay.overlay
 ```
 
-**Manual end-to-end test** (no dashboard yet — use the helper's auto-generated API docs):
+**Dashboard** (Phase 2 — browser UI for meeting start/stop, history, and settings, served by the same helper): open `http://localhost:8000/` while the helper is running. Live tab mirrors the overlay; Meetings tab lists past meetings and their transcripts; Settings tab lets you pick a mic device, STT language, and Whisper model size (`GET/PUT /settings`, `GET /audio-devices`) — changes take effect on the next meeting you start.
+
+**Manual end-to-end test**:
 1. Start the helper, then the overlay.
-2. Open `http://localhost:8000/docs` and call `POST /meetings/start` (empty body `{}` is fine).
+2. Open `http://localhost:8000/` (the dashboard) and click **Start Meeting** — or use `http://localhost:8000/docs` and call `POST /meetings/start` directly.
 3. Speak into your mic, and/or play audio through your speakers — captions should appear in the overlay window within ~1-2 seconds of a pause.
 4. Call `POST /meetings/stop`.
 5. Call `GET /meetings/{meeting_id}/transcript` to see the full stored transcript with `"you"`/`"other"` speaker labels.
