@@ -103,14 +103,14 @@ def get_meeting(conn: sqlite3.Connection, meeting_id: int) -> Optional[sqlite3.R
 
 def get_transcript(conn: sqlite3.Connection, meeting_id: int) -> list[sqlite3.Row]:
     return conn.execute(
-        "SELECT * FROM transcript_segments WHERE meeting_id = ? ORDER BY started_at",
+        "SELECT * FROM transcript_segments WHERE meeting_id = ? ORDER BY started_at, id",
         (meeting_id,),
     ).fetchall()
 
 
 def list_meetings(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
-        "SELECT * FROM meetings ORDER BY started_at DESC"
+        "SELECT * FROM meetings ORDER BY started_at DESC, id DESC"
     ).fetchall()
 
 
