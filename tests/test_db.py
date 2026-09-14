@@ -78,3 +78,43 @@ def test_get_all_settings_merges_defaults_with_overrides(conn):
     assert settings["stt_language"] == "fr"
     assert settings["whisper_model_size"] == "base"
     assert settings["mic_device_id"] == ""
+
+
+def test_add_summary_and_get_summaries(conn):
+    meeting_id = db.create_meeting(conn, "Standup")
+    db.add_summary(conn, meeting_id, "mcp:claude-desktop", "Key decision: ship it.")
+    rows = db.get_summaries(conn, meeting_id)
+    assert len(rows) == 1
+    assert rows[0]["provider"] == "mcp:claude-desktop"
+    assert rows[0]["content"] == "Key decision: ship it."
+    assert rows[0]["created_at"] is not None
+
+
+def test_get_summaries_returns_newest_first(conn):
+    meeting_id = db.create_meeting(conn, "Standup")
+    first = db.add_summary(conn, meeting_id, "mcp:claude-desktop", "first")
+    second = db.add_summary(conn, meeting_id, "mcp:claude-desktop", "second")
+    rows = db.get_summaries(conn, meeting_id)
+    assert [r["id"] for r in rows] == [second, first]
+
+
+def test_get_summaries_is_scoped_to_one_meeting(conn):
+    meeting_a = db.create_meeting(conn, "A")
+    meeting_b = db.create_meeting(conn, "B")
+    db.add_summary(conn, meeting_a, "mcp:claude-desktop", "summary for A")
+    assert db.get_summaries(conn, meeting_b) == []
+
+
+def test_get_summaries_empty_for_meeting_without_summaries(conn):
+    meeting_id = db.create_meeting(conn, "Standup")
+    assert db.get_summaries(conn, meeting_id) == []
+
+
+def test_summary_prompt_template_has_a_default(conn):
+    settings = db.get_all_settings(conn)
+    assert "key decisions" in settings["summary_prompt_template"].lower()
+
+
+def test_summary_prompt_template_is_overridable(conn):
+    db.set_setting(conn, "summary_prompt_template", "Just the action items please.")
+    assert db.get_all_settings(conn)["summary_prompt_template"] == "Just the action items please."

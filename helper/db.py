@@ -28,12 +28,25 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS summaries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    meeting_id INTEGER NOT NULL REFERENCES meetings(id),
+    provider TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 DEFAULT_SETTINGS = {
     "mic_device_id": "",
     "stt_language": "en",
     "whisper_model_size": "base",
+    "summary_prompt_template": (
+        "Summarize this meeting transcript. Include: key decisions made, "
+        "action items (with owners if mentioned), and open questions or "
+        "unresolved topics."
+    ),
 }
 
 
@@ -134,3 +147,27 @@ def get_all_settings(conn: sqlite3.Connection) -> dict:
     settings = dict(DEFAULT_SETTINGS)
     settings.update({row["key"]: row["value"] for row in rows})
     return settings
+
+
+def add_summary(
+    conn: sqlite3.Connection, meeting_id: int, provider: str, content: str
+) -> int:
+    now = datetime.now(timezone.utc).isoformat()
+    cur = conn.execute(
+        "INSERT INTO summaries (meeting_id, provider, content, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        (meeting_id, provider, content, now),
+    )
+    conn.commit()
+    logger.info(
+        "Added summary id=%s meeting_id=%s provider=%s chars=%s",
+        cur.lastrowid, meeting_id, provider, len(content),
+    )
+    return cur.lastrowid
+
+
+def get_summaries(conn: sqlite3.Connection, meeting_id: int) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM summaries WHERE meeting_id = ? ORDER BY created_at DESC, id DESC",
+        (meeting_id,),
+    ).fetchall()

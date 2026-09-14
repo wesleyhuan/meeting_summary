@@ -190,6 +190,11 @@ def test_get_settings_returns_defaults_when_unset():
         "mic_device_id": "",
         "stt_language": "en",
         "whisper_model_size": "base",
+        "summary_prompt_template": (
+            "Summarize this meeting transcript. Include: key decisions made, "
+            "action items (with owners if mentioned), and open questions or "
+            "unresolved topics."
+        ),
     }
 
 
