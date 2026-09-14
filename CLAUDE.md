@@ -48,6 +48,29 @@ python -m overlay.overlay
 
 **Tests:** `pytest -v` — covers storage, resampling, segmentation, VAD wiring, STT result parsing, capture-source wiring, pipeline orchestration, the REST/WebSocket API, and overlay caption formatting via fakes/dependency injection. Real audio hardware, the WASAPI loopback device, and the Whisper model itself are exercised only in the manual test above, not in the automated suite.
 
+## Phase 3: MCP server (summarization via your own Claude subscription)
+
+`mcp_server.py` is a third entry point, alongside the helper service and the overlay. Claude Desktop launches it over stdio; it reads and writes the same SQLite database, so the helper service does **not** need to be running for summarization to work.
+
+**Tools it exposes:** `list_meetings`, `get_meeting_transcript`, `get_summary_prompt`, `save_meeting_summary`.
+
+**Setup —** add this entry to the `mcpServers` object in `%APPDATA%\Claude\claude_desktop_config.json`, then fully restart Claude Desktop (quit from the tray, not just close the window):
+
+```json
+"livesubtitle": {
+  "command": "C:\\Users\\wesle\\Desktop\\claude_code\\livesubtitle\\.venv\\Scripts\\python.exe",
+  "args": ["C:\\Users\\wesle\\Desktop\\claude_code\\livesubtitle\\mcp_server.py"]
+}
+```
+
+That file already contains other MCP servers — add this as one more key inside the existing `mcpServers` object, do not replace the object. Both paths must be absolute, and the `command` must be the project venv's Python (not a system Python), because the server imports `mcp` and the project's `helper` package.
+
+**Usage:** ask Claude Desktop something like *"summarize my last meeting"*. It calls `list_meetings` → `get_meeting_transcript` → `get_summary_prompt`, writes the summary with `save_meeting_summary`, and the result appears in the dashboard's Meetings tab. The summary wording follows the **Summary prompt** field in the dashboard's Settings tab, so edit it there rather than repeating instructions to Claude each time.
+
+**Environment:** set `LIVESUBTITLE_DB_PATH` to point the server at a database other than the default `%APPDATA%\livesubtitle\livesubtitle.db`.
+
+**Debugging:** stdout is the JSON-RPC transport, so the server logs to stderr only and never prints. If Claude Desktop shows the server as failed, run it directly (`.venv\Scripts\python.exe mcp_server.py`) — it will sit waiting for input on stdin, which confirms it starts cleanly; import errors surface immediately.
+
 ## Architecture notes
 
 ### `index.html`
