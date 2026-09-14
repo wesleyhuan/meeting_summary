@@ -267,3 +267,51 @@ def test_dashboard_route_returns_html_with_all_tabs():
     assert 'data-tab="live"' in body
     assert 'data-tab="meetings"' in body
     assert 'data-tab="settings"' in body
+
+
+def test_get_summaries_returns_saved_summaries():
+    meeting_id = db.create_meeting(main.state.conn, "Standup")
+    db.add_summary(main.state.conn, meeting_id, "mcp:claude-desktop", "We shipped.")
+
+    with TestClient(main.app) as client:
+        response = client.get(f"/meetings/{meeting_id}/summaries")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["meeting_id"] == meeting_id
+    assert body["summaries"][0]["content"] == "We shipped."
+    assert body["summaries"][0]["provider"] == "mcp:claude-desktop"
+
+
+def test_get_summaries_empty_list_when_none_saved():
+    meeting_id = db.create_meeting(main.state.conn, "Standup")
+
+    with TestClient(main.app) as client:
+        response = client.get(f"/meetings/{meeting_id}/summaries")
+
+    assert response.status_code == 200
+    assert response.json()["summaries"] == []
+
+
+def test_get_summaries_for_missing_meeting_returns_404():
+    with TestClient(main.app) as client:
+        response = client.get("/meetings/999/summaries")
+
+    assert response.status_code == 404
+
+
+def test_settings_includes_summary_prompt_template():
+    with TestClient(main.app) as client:
+        response = client.get("/settings")
+
+    assert "key decisions" in response.json()["summary_prompt_template"].lower()
+
+
+def test_put_settings_updates_summary_prompt_template():
+    with TestClient(main.app) as client:
+        response = client.put(
+            "/settings", json={"summary_prompt_template": "Only the action items."}
+        )
+
+    assert response.status_code == 200
+    assert response.json()["summary_prompt_template"] == "Only the action items."

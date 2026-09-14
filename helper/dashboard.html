@@ -123,9 +123,26 @@
     .meeting-row .title { font-weight: 600; }
     .meeting-row .meta { color: var(--text-dim); font-size: 0.78rem; }
 
+    .summary-list { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+    .summary-card {
+      background: var(--surface);
+      border: 1px solid var(--accent-dim, var(--border));
+      border-left: 3px solid var(--accent);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+    }
+    .summary-card .meta { color: var(--text-dim); font-size: 0.75rem; margin-bottom: 6px; }
+    .summary-card .content { white-space: pre-wrap; line-height: 1.5; font-size: 0.9rem; }
+    .summary-hint {
+      color: var(--text-dim);
+      font-size: 0.82rem;
+      margin-top: 16px;
+      line-height: 1.5;
+    }
+
     .settings-form { display: flex; flex-direction: column; gap: 16px; max-width: 420px; }
     .field label { display: block; margin-bottom: 6px; font-size: 0.85rem; color: var(--text-dim); }
-    .field select, .field input {
+    .field select, .field input, .field textarea {
       width: 100%;
       background: var(--bg);
       border: 1px solid var(--border);
@@ -134,6 +151,7 @@
       padding: 8px 10px;
       font-size: 0.85rem;
     }
+    .field textarea { resize: vertical; font-family: inherit; line-height: 1.5; }
 
     .toast {
       position: fixed;
@@ -176,6 +194,7 @@
 
 <section id="tab-meetings" class="tab-panel" data-tab="meetings">
   <div class="meeting-list" id="meetingList">Loading&hellip;</div>
+  <div class="summary-list" id="meetingSummaries"></div>
   <div class="transcript-list" id="meetingTranscript"></div>
 </section>
 
@@ -200,6 +219,10 @@
         <option value="medium">medium</option>
         <option value="large-v3">large-v3 (slowest, most accurate)</option>
       </select>
+    </div>
+    <div class="field">
+      <label for="promptTemplate">Summary prompt (used by your MCP client)</label>
+      <textarea id="promptTemplate" rows="4"></textarea>
     </div>
     <button type="submit" class="btn btn-start">Save Settings</button>
   </form>
@@ -319,6 +342,7 @@
   }
 
   async function loadTranscript(meetingId) {
+    loadSummaries(meetingId);
     meetingTranscript.innerHTML = 'Loading…';
     try {
       const response = await fetch(`/meetings/${meetingId}/transcript`);
@@ -335,10 +359,43 @@
     }
   }
 
+  async function loadSummaries(meetingId) {
+    const container = document.getElementById('meetingSummaries');
+    container.innerHTML = '';
+    try {
+      const response = await fetch(`/meetings/${meetingId}/summaries`);
+      const data = await response.json();
+      if (data.summaries.length === 0) {
+        const hint = document.createElement('div');
+        hint.className = 'summary-hint';
+        hint.textContent =
+          `No summary yet. Ask your MCP client (e.g. Claude Desktop) to summarize meeting ${meetingId}.`;
+        container.appendChild(hint);
+        return;
+      }
+      data.summaries.forEach((summary) => {
+        const card = document.createElement('div');
+        card.className = 'summary-card';
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.textContent = `${summary.provider} · ${summary.created_at}`;
+        const content = document.createElement('div');
+        content.className = 'content';
+        content.textContent = summary.content;
+        card.appendChild(meta);
+        card.appendChild(content);
+        container.appendChild(card);
+      });
+    } catch (err) {
+      container.textContent = 'Could not load summaries.';
+    }
+  }
+
   // ---- Settings tab ----
   const micSelect = document.getElementById('micSelect');
   const languageInput = document.getElementById('languageInput');
   const modelSelect = document.getElementById('modelSelect');
+  const promptTemplate = document.getElementById('promptTemplate');
   const settingsForm = document.getElementById('settingsForm');
 
   async function loadSettings() {
@@ -366,6 +423,7 @@
     micSelect.value = settings.mic_device_id || '';
     languageInput.value = settings.stt_language || 'en';
     modelSelect.value = settings.whisper_model_size || 'base';
+    promptTemplate.value = settings.summary_prompt_template || '';
   }
   loadSettings();
 
@@ -379,6 +437,7 @@
           mic_device_id: micSelect.value,
           stt_language: languageInput.value || 'en',
           whisper_model_size: modelSelect.value,
+          summary_prompt_template: promptTemplate.value,
         }),
       });
       showToast('Settings saved');

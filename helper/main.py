@@ -73,6 +73,7 @@ class SettingsUpdate(BaseModel):
     mic_device_id: Optional[str] = None
     stt_language: Optional[str] = None
     whisper_model_size: Optional[str] = None
+    summary_prompt_template: Optional[str] = None
 
     @field_validator("whisper_model_size")
     @classmethod
@@ -190,6 +191,15 @@ def get_transcript(meeting_id: int):
         raise HTTPException(status_code=404, detail="Meeting not found")
     rows = db.get_transcript(state.conn, meeting_id)
     return {"meeting_id": meeting_id, "segments": [dict(r) for r in rows]}
+
+
+@app.get("/meetings/{meeting_id}/summaries")
+def get_summaries(meeting_id: int):
+    meeting = db.get_meeting(state.conn, meeting_id)
+    if meeting is None:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    rows = db.get_summaries(state.conn, meeting_id)
+    return {"meeting_id": meeting_id, "summaries": [dict(r) for r in rows]}
 
 
 @app.websocket("/live")
