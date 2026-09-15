@@ -1,5 +1,6 @@
 import asyncio
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -20,6 +21,20 @@ def conn(tmp_path, monkeypatch):
     connection = db.connect(str(tmp_path / "test.db"))
     monkeypatch.setattr(mcp_server, "_conn", connection)
     return connection
+
+
+def test_get_conn_unexpected_connect_failure_surfaces_as_tool_error(monkeypatch):
+    """A bad LIVESUBTITLE_DB_PATH (unwritable dir, corrupt file, etc.) fails
+    lazily inside db.connect() the first time a tool runs; that failure must
+    not reach the client as an opaque, unlogged exception either."""
+
+    def boom(path):
+        raise sqlite3.OperationalError("unable to open database file")
+
+    monkeypatch.setattr(db, "connect", boom)
+
+    with pytest.raises(ToolError, match="unable to open database file"):
+        mcp_server._get_conn()
 
 
 def test_list_meetings_returns_meetings_newest_first(conn):
@@ -51,8 +66,32 @@ def test_get_meeting_transcript_returns_speaker_labeled_segments(conn):
 
 
 def test_get_meeting_transcript_unknown_id_raises_toolerror_with_clear_message(conn):
-    with pytest.raises(ToolError, match="999"):
+    # Anchored match: guards against the deliberate "No meeting with id" error
+    # ever being double-wrapped into "Database error during ...: No meeting...".
+    with pytest.raises(ToolError, match=r"^No meeting with id 999"):
         mcp_server.get_meeting_transcript(999)
+
+
+def test_get_meeting_transcript_unexpected_db_error_surfaces_as_tool_error(
+    conn, monkeypatch, caplog
+):
+    """An unexpected sqlite failure must reach the client as a ToolError that
+    names what failed and includes the underlying message (which the MCP SDK
+    would otherwise replace with opaque generic text), and must be logged."""
+    meeting_id = db.create_meeting(conn, "Standup")
+
+    def boom(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(db, "get_transcript", boom)
+
+    with caplog.at_level("ERROR"):
+        with pytest.raises(
+            ToolError, match=r"Database error during fetching transcript.*locked"
+        ):
+            mcp_server.get_meeting_transcript(meeting_id)
+
+    assert any(r.levelname == "ERROR" and r.exc_info for r in caplog.records)
 
 
 def test_get_meeting_transcript_empty_transcript_raises_toolerror(conn):
@@ -71,6 +110,17 @@ def test_get_summary_prompt_falls_back_to_default(conn):
     assert "key decisions" in mcp_server.get_summary_prompt().lower()
 
 
+def test_get_summary_prompt_falls_back_to_default_when_stored_value_is_blank(conn):
+    """A saved-but-empty template (cleared Settings field, or a failed
+    /settings load that persisted "") must not hand Claude Desktop an empty
+    instruction."""
+    db.set_setting(conn, "summary_prompt_template", "")
+    assert mcp_server.get_summary_prompt() == db.DEFAULT_SETTINGS["summary_prompt_template"]
+
+    db.set_setting(conn, "summary_prompt_template", "   ")
+    assert mcp_server.get_summary_prompt() == db.DEFAULT_SETTINGS["summary_prompt_template"]
+
+
 def test_save_meeting_summary_persists_with_mcp_provider(conn):
     meeting_id = db.create_meeting(conn, "Standup")
 
@@ -84,8 +134,20 @@ def test_save_meeting_summary_persists_with_mcp_provider(conn):
 
 
 def test_save_meeting_summary_unknown_meeting_raises_toolerror(conn):
-    with pytest.raises(ToolError, match="999"):
+    with pytest.raises(ToolError, match=r"^No meeting with id 999"):
         mcp_server.save_meeting_summary(999, "orphan summary")
+
+
+def test_save_meeting_summary_unexpected_db_error_surfaces_as_tool_error(conn, monkeypatch):
+    meeting_id = db.create_meeting(conn, "Standup")
+
+    def boom(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(db, "add_summary", boom)
+
+    with pytest.raises(ToolError, match=r"Database error during saving summary.*locked"):
+        mcp_server.save_meeting_summary(meeting_id, "We decided to ship.")
 
 
 def test_save_meeting_summary_rejects_empty_content(conn):

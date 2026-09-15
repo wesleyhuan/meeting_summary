@@ -321,6 +321,8 @@
 
   async function loadMeetings() {
     meetingList.textContent = 'Loading…';
+    meetingTranscript.innerHTML = '';
+    document.getElementById('meetingSummaries').innerHTML = '';
     try {
       const response = await fetch('/meetings');
       const data = await response.json();

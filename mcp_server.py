@@ -42,17 +42,35 @@ server = MCPServer(
 _conn = None
 
 
+def _db_call(what: str, fn, *args):
+    """Run a db call, converting unexpected failures into relayable ToolErrors.
+
+    The MCP SDK suppresses the text of any non-ToolError exception, so an
+    unexpected failure would otherwise reach the client as opaque generic text
+    with nothing useful on stderr either.
+    """
+    try:
+        return fn(*args)
+    except ToolError:
+        raise
+    except Exception as exc:
+        logger.exception("%s failed", what)
+        raise ToolError(f"Database error during {what}: {exc}") from exc
+
+
 def _get_conn():
     """Lazily open the shared database; tests replace the module-level _conn."""
     global _conn
     if _conn is None:
-        db_path = os.getenv("LIVESUBTITLE_DB_PATH") or db.default_db_path()
-        _conn = db.connect(db_path)
+        db_path = os.getenv("LIVESUBTITLE_DB_PATH") or _db_call(
+            "resolving database path", db.default_db_path
+        )
+        _conn = _db_call("connecting to database", db.connect, db_path)
     return _conn
 
 
 def _require_meeting(conn, meeting_id: int):
-    meeting = db.get_meeting(conn, meeting_id)
+    meeting = _db_call("looking up meeting", db.get_meeting, conn, meeting_id)
     if meeting is None:
         raise ToolError(
             f"No meeting with id {meeting_id}. Call list_meetings to see valid ids."
@@ -67,7 +85,7 @@ def list_meetings() -> list[dict]:
     Returns each meeting's id, title, start time, and end time (null if the
     meeting is still recording).
     """
-    rows = db.list_meetings(_get_conn())
+    rows = _db_call("listing meetings", db.list_meetings, _get_conn())
     logger.info("list_meetings -> %s meetings", len(rows))
     return [
         {
@@ -89,7 +107,7 @@ def get_meeting_transcript(meeting_id: int) -> dict:
     """
     conn = _get_conn()
     meeting = _require_meeting(conn, meeting_id)
-    rows = db.get_transcript(conn, meeting_id)
+    rows = _db_call("fetching transcript", db.get_transcript, conn, meeting_id)
     if not rows:
         raise ToolError(
             f"Meeting {meeting_id} ({meeting['title']!r}) has no transcript segments — "
@@ -119,7 +137,14 @@ def get_summary_prompt() -> str:
     Follow these instructions when summarizing, so summaries match what the user
     set up in their dashboard settings.
     """
-    return db.get_all_settings(_get_conn())["summary_prompt_template"]
+    settings = _db_call("loading settings", db.get_all_settings, _get_conn())
+    template = settings["summary_prompt_template"]
+    if not template or not template.strip():
+        # A blank stored template (e.g. /settings failed to load, or the user
+        # cleared the field and saved) must not silently hand Claude Desktop
+        # an empty instruction.
+        return db.DEFAULT_SETTINGS["summary_prompt_template"]
+    return template
 
 
 @server.tool()
@@ -129,7 +154,9 @@ def save_meeting_summary(meeting_id: int, content: str) -> str:
         raise ToolError("Refusing to save an empty summary.")
     conn = _get_conn()
     _require_meeting(conn, meeting_id)
-    summary_id = db.add_summary(conn, meeting_id, MCP_PROVIDER, content)
+    summary_id = _db_call(
+        "saving summary", db.add_summary, conn, meeting_id, MCP_PROVIDER, content
+    )
     logger.info("save_meeting_summary meeting_id=%s summary_id=%s", meeting_id, summary_id)
     return f"Saved summary {summary_id} for meeting {meeting_id}."
 

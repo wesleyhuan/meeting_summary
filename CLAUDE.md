@@ -45,12 +45,15 @@ python -m overlay.overlay
 3. Speak into your mic, and/or play audio through your speakers — captions should appear in the overlay window within ~1-2 seconds of a pause.
 4. Call `POST /meetings/stop`.
 5. Call `GET /meetings/{meeting_id}/transcript` to see the full stored transcript with `"you"`/`"other"` speaker labels.
+6. Call `GET /meetings/{meeting_id}/summaries` to see any summaries saved for that meeting (e.g. via the Phase 3 MCP server below).
 
 **Tests:** `pytest -v` — covers storage, resampling, segmentation, VAD wiring, STT result parsing, capture-source wiring, pipeline orchestration, the REST/WebSocket API, and overlay caption formatting via fakes/dependency injection. Real audio hardware, the WASAPI loopback device, and the Whisper model itself are exercised only in the manual test above, not in the automated suite.
 
 ## Phase 3: MCP server (summarization via your own Claude subscription)
 
 `mcp_server.py` is a third entry point, alongside the helper service and the overlay. Claude Desktop launches it over stdio; it reads and writes the same SQLite database, so the helper service does **not** need to be running for summarization to work.
+
+The `summaries` table is created automatically (via `CREATE TABLE IF NOT EXISTS`) the next time anything connects to the database — no migration step is needed if you already have an existing `livesubtitle.db` from Phase 1/2.
 
 **Tools it exposes:** `list_meetings`, `get_meeting_transcript`, `get_summary_prompt`, `save_meeting_summary`.
 
