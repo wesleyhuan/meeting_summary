@@ -1,3 +1,5 @@
+English | [繁體中文](README.zh-TW.md)
+
 # Meeting Summary
 
 Record any meeting on your PC — Webex, Google Meet, Teams, anything — get a live subtitle overlay, a full speaker-labeled transcript, and a summary written by your own Claude subscription.
